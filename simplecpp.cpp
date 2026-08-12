@@ -1702,12 +1702,10 @@ namespace simplecpp {
                 } else if (rawtok->op == '(') {
                     macro2tok = output2.back();
                 }
-                if (!macro2tok || !macro2tok->name)
+                const Macro * const macro = callableMacro(macro2tok, macros, expandedmacros);
+                if (!macro)
                     break;
-                if (output2.cfront() != output2.cback() && macro2tok->str() == this->name())
-                    break;
-                const MacroMap::const_iterator macro = macros.find(macro2tok->str());
-                if (macro == macros.end() || !macro->second.functionLike() || macro2tok->isExpandedFrom(&macro->second))
+                if (macro == this && output2.cfront() != output2.cback())
                     break;
                 TokenList rawtokens2(inputFiles);
                 const Location loc(macro2tok->location);
@@ -1732,7 +1730,7 @@ namespace simplecpp {
                 }
                 if (!rawtok2 || par != 1U)
                     break;
-                if (macro->second.expand(output2, rawtok->location, rawtokens2.cfront(), macros, expandedmacros) != nullptr)
+                if (macro->expand(output2, rawtok->location, rawtokens2.cfront(), macros, expandedmacros) != nullptr)
                     break;
                 rawtok = rawtok2->next;
             }
@@ -2143,6 +2141,14 @@ namespace simplecpp {
                 if (tok->op == '#') {
                     // A##B => AB
                     tok = expandHashHash(output, loc, tok->previous, macros, expandedmacros, parametertokens2);
+                    if (tok && tok->op == '(' && tok->previous && output.back() && output.back() != output_end_1 && output.back()->name) {
+                        // the pasted result may end with the name of a function-like
+                        // macro whose arguments are supplied by the following tokens
+                        TokenList temp(files);
+                        temp.push_back(new Token(*output.back()));
+                        output.deleteToken(output.back());
+                        tok = recursiveExpandToken(output, temp, loc, tok->previous, macros, expandedmacros, parametertokens2);
+                    }
                 } else {
                     // #123 => "123"
                     tok = expandHash(output, loc, tok->previous, expandedmacros, parametertokens2);
@@ -2161,17 +2167,25 @@ namespace simplecpp {
             return functionLike() ? parametertokens2.back()->next : nameTokInst->next;
         }
 
+        /** Returns the macro when @p nameTok names a function-like macro that may be
+         *  expanded here (not currently being expanded, not painted); nullptr otherwise */
+        static const Macro *callableMacro(const Token *nameTok, const MacroMap &macros, const std::set<TokenString> &expandedmacros) {
+            if (!nameTok || !nameTok->name)
+                return nullptr;
+            const MacroMap::const_iterator it = macros.find(nameTok->str());
+            if (it == macros.end() || expandedmacros.find(nameTok->str()) != expandedmacros.end())
+                return nullptr;
+            if (!it->second.functionLike() || nameTok->isExpandedFrom(&it->second))
+                return nullptr;
+            return &it->second;
+        }
+
         /** Returns the macro to expand when the last token of @p temp is the name of a
          *  function-like macro and the tokens after @p tok supply its arguments; nullptr otherwise */
         static const Macro *rescanMacro(const TokenList &temp, const Token *tok, const MacroMap &macros, const std::set<TokenString> &expandedmacros) {
-            if (!temp.cback() || !temp.cback()->name || !sameline(tok, tok->next) || tok->next->op != '(')
+            if (!sameline(tok, tok->next) || tok->next->op != '(')
                 return nullptr;
-            const MacroMap::const_iterator it = macros.find(temp.cback()->str());
-            if (it == macros.end() || expandedmacros.find(temp.cback()->str()) != expandedmacros.end())
-                return nullptr;
-            if (!it->second.functionLike() || temp.cback()->isExpandedFrom(&it->second))
-                return nullptr;
-            return &it->second;
+            return callableMacro(temp.cback(), macros, expandedmacros);
         }
 
         /** Expand while the expansion result in @p temp ends with the name of a

@@ -1005,6 +1005,26 @@ static void define27()
     ASSERT_EQUALS("", preprocess(code));
 }
 
+static void define28()
+{
+    // a ## paste result that ends with the name of a function-like macro must be
+    // rescanned against the tokens that follow the paste in the replacement list
+    const char code[] = "#define F(x) [x]\n"
+                        "#define CAT(a, b) a ## b (2)\n"
+                        "CAT(x, y F)\n";
+    ASSERT_EQUALS("\n"
+                  "\n"
+                  "xy [ 2 ]", preprocess(code));
+
+    // the following call tokens may use the macro's parameters
+    const char code2[] = "#define F(x) [x]\n"
+                         "#define CAT(a, b) a ## b (a)\n"
+                         "CAT(q, w F)\n";
+    ASSERT_EQUALS("\n"
+                  "\n"
+                  "qw [ q ]", preprocess(code2));
+}
+
 
 static void define_invalid_1()
 {
@@ -4580,6 +4600,7 @@ static void runTests(int argc, char **argv, Input input)
     TEST_CASE(define25);
     TEST_CASE(define26);
     TEST_CASE(define27);
+    TEST_CASE(define28);
     TEST_CASE(define_invalid_1);
     TEST_CASE(define_invalid_2);
     TEST_CASE(define_invalid_3);
